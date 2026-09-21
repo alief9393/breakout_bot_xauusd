@@ -1,0 +1,26 @@
+# ── secrets (NEVER commit) ──
+.env
+*.env
+!.env.example
+*.session
+*.session-journal
+
+# ── python env / caches ──
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# ── large data (regenerate via fetch_prices.py) ──
+*.csv
+
+# ── runtime artifacts (logs, state, backtest dumps) ──
+*_log.jsonl
+*_state.json
+signals*.jsonl
+signals_*.jsonl
+messages*.jsonl
+channel_archive.jsonl
+bt_out.txt
+bt_14d.txt
+*.output
