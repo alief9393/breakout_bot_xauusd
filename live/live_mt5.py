@@ -13,7 +13,7 @@ Safety: EXECUTE_ENABLED=False = dry-run (logs intents, sends NOTHING). Set True 
 Start on a DEMO account.
 """
 import os, sys, json, time, datetime
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core"))
 from breakout_core import Config, BreakoutEngine
 
 try:
@@ -24,7 +24,8 @@ except Exception as e:
     sys.exit(1)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-for line in open(os.path.join(HERE, ".env")) if os.path.exists(os.path.join(HERE, ".env")) else []:
+_ENV = os.path.join(HERE, "..", ".env")   # repo-root .env
+for line in open(_ENV) if os.path.exists(_ENV) else []:
     line = line.strip()
     if line and not line.startswith("#") and "=" in line:
         k, v = line.split("=", 1); os.environ.setdefault(k.strip(), v.strip())

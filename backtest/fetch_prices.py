@@ -56,7 +56,9 @@ PERIOD        = os.getenv("CTRADER_PERIOD", "M5")
 HISTORY_YEARS = float(os.getenv("CTRADER_HISTORY_YEARS", "3"))
 WINDOW_DAYS   = int(os.getenv("CTRADER_WINDOW_DAYS", "14"))
 REQUEST_DELAY = float(os.getenv("CTRADER_REQUEST_DELAY", "1.0"))
-OUTPUT_CSV    = os.getenv("CTRADER_HISTORY_CSV", "xauusd_m5_history.csv")
+_ROOT         = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUT_CSV    = os.getenv("CTRADER_HISTORY_CSV", os.path.join(_ROOT, "data", "xauusd_m1.csv"))
+os.makedirs(os.path.dirname(os.path.abspath(OUTPUT_CSV)), exist_ok=True)
 
 _missing = [n for n, v in [
     ("CTRADER_CLIENT_ID", CLIENT_ID),

@@ -11,16 +11,11 @@ __pycache__/
 *.pyc
 *.pyo
 
-# ── large data (regenerate via fetch_prices.py) ──
+# ── market data (regenerate via backtest/fetch_prices.py) ──
+data/*.csv
 *.csv
 
-# ── runtime artifacts (logs, state, backtest dumps) ──
+# ── runtime artifacts (logs / state) ──
 *_log.jsonl
 *_state.json
-signals*.jsonl
-signals_*.jsonl
-messages*.jsonl
-channel_archive.jsonl
-bt_out.txt
-bt_14d.txt
-*.output
+logs/

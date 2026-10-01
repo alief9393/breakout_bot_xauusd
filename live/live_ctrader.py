@@ -8,7 +8,7 @@ CTRADER_ACCESS_TOKEN / CTRADER_HOST_TYPE (demo|live). Then: python live_ctrader_
 Safety: EXECUTE_ENABLED=False = dry-run. Start on DEMO.
 """
 import os, sys, json, time, datetime, threading, calendar
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core"))
 from breakout_core import Config, BreakoutEngine
 from dotenv import load_dotenv
 from twisted.internet import reactor, defer

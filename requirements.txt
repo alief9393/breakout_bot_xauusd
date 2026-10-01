@@ -1,2 +1,10 @@
+# Core (backtest needs nothing beyond the stdlib).
 python-dotenv==1.2.1
-Telethon==1.44.0
+
+# Live execution + data download via cTrader Open API:
+ctrader-open-api==0.9.2
+protobuf==5.29.5
+Twisted==24.11.0
+
+# MT5 execution engine (live/live_mt5.py) — WINDOWS ONLY, install there:
+#   pip install MetaTrader5

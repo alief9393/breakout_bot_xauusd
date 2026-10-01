@@ -1,236 +1,96 @@
-# CLAUDE.md — Breakout Bot (XAUUSD) — Project Brief & Operator Guide
+# CLAUDE.md — breakout_bot_xauusd
 
-> This file auto-loads into a Claude Code session opened in this folder. It is the complete
-> handoff: what this project is, what was learned, the final strategy, how to run it live on
-> MT5/cTrader, the config, and the honest caveats. Read it fully before acting.
+Brief for an AI assistant (or a new operator) picking up this project. Read this first.
 
----
+## What this is
+A trend-following trading bot for **gold (XAUUSD)**. One strategy — a **Donchian breakout with a
+let-winners-run exit** — expressed three ways that share the same logic:
+- `core/breakout_core.py` — the strategy as a pure state machine (the single source of truth)
+- `backtest/backtest.py` — historical simulation (stdlib only)
+- `live/live_ctrader.py` and `live/live_mt5.py` — execution engines that import the core
 
-## 1. What this project is (the short version)
+If you change the strategy, change it in `core/breakout_core.py`; the live engines inherit it.
+`backtest/backtest.py` re-implements the same rules standalone — keep the two in sync.
 
-It started as a tool to **validate a gold (XAUUSD) Telegram signal channel** against real price, and
-evolved into **building and validating our own trading strategy** with rigorous backtests. The
-end product is a **Donchian breakout trend-following bot for XAUUSD** with disciplined money
-management, plus two live execution engines (**MT5** and **cTrader**).
+## The strategy (and WHY it works)
+- **Entry:** LONG when price breaks the prior **N-day high**, SHORT when it breaks the N-day low.
+  The breakout itself is the regime detector → the bot is **flat in chop, long/short only in trends.**
+- **Stop (1R):** hard stop **SL_PIPS = 150** (gold pip = 0.1 price, so 150 pips = $15) from entry.
+  Losers are capped at **−1R**.
+- **Exit:** **no take-profit.** Trail the stop **TRAIL_R = 2R** behind the favorable extreme; force-close
+  after **HORIZON_DAYS = 7**.
+- **Sizing:** risk **RISK_PCT** of balance per trade, compounding, lots rounded to 0.01 and clamped
+  to [MIN_LOT 0.01, MAX_LOT 50].
 
-**The honest headline:** the strategy is a real trend-following edge **on gold 2023–2026 (a strong
-bull/trending period)**. It has **NOT yet been validated out-of-sample** on gold's choppy/bear
-years. Treat all backtest returns as the optimistic ceiling until that validation is done.
+**The edge is money management, not prediction.** Win rate is only ~39% — most trades lose small at
+−1R — but the few winners run far, giving **+0.41R average per trade**. *Win rate is a lying metric;
+expectancy (avg R × frequency) is what pays.* Do not "improve" it by adding a take-profit or tightening
+the trail — that caps the winners and kills the edge (tested; it does).
 
----
-
-## 2. The final strategy (what the bot trades)
-
-**Donchian breakout + let-winners-run money management.** Rules:
-
-1. **Entry (the regime detector):** enter **LONG** when price breaks the prior **N-day HIGH**;
-   **SHORT** when it breaks the prior **N-day LOW**. `N = DONCHIAN_N` (3–5 days). The breakout
-   *is* the trend-start signal — the bot is flat (no trade) when price stays inside the range (chop).
-2. **Stop (cut losers):** hard stop **1R** away, where `1R = SL_PIPS` (150 pips = 15.0 price on gold).
-   Every loser is capped at −1R.
-3. **Exit (let winners run):** **no fixed take-profit.** Trail the stop **`TRAIL_R` (2R)** behind
-   the favorable extreme — only moves in your favor. You ride a trend until it pulls back 2R.
-4. **One position at a time.** After a close, **cooldown 240 min** before re-arming.
-5. **Max hold 7 days** then force-close.
-6. **Sizing:** risk `RISK_PCT` of balance over the 1R stop; lots rounded to 0.01, clamped
-   **[0.01, 50]** (broker min/max).
-
-**Why this shape:** win rate is only ~36–43%, but each **winner runs far** (avg **+0.4 to +0.7 R**)
-while losers are capped at −1R. The asymmetry (small capped losses, uncapped trend winners) is the
-entire edge. This is textbook trend-following (how CTAs trade).
-
----
-
-## 3. Recommended config (settled values)
-
-| Field | Value | Note |
-|---|---|---|
-| `DONCHIAN_N` | **3–5** | 3–5 all similar; 3 scored highest but that's likely overfit. 5 is safer. Below 3 = too noisy. |
-| `SL_PIPS` | 150 | 1R |
-| `TRAIL_R` | 2.0 | let-winners-run leash |
-| `RISK_PCT` | **0.02–0.07** | 2% ≈ −25% DD; 5% ≈ −51% DD; 7% ≈ −63% DD. **Never 10%+ (blows up).** |
-| `HORIZON_DAYS` | 7 | longer holds captured more trend in tests (5–7 good) |
-| `COOLDOWN_MIN` | 240 | |
-| `MIN_LOT / MAX_LOT` | 0.01 / 50 | broker limits — see §7 |
-
-**Backtest reference (gold 2023–2026, lot limits applied):**
-- 5d, 7% risk, $300 start → ~$2.5M (−63% DD, 39% win, +0.46R, 67% months positive), ~385 trades.
-- 20d, 2% risk → ~191 trades, −25% DD (smoothest).
-- These are **one 3-year bull** — not a forward promise.
-
-**Withdrawal plan (operator's real risk control):** start small, **withdraw your initial stake as
-soon as the account has grown enough to pull it out** ("recover first"), then harvest profits
-routinely (e.g. 50%/month). Once your capital is out, deep drawdowns are on house money. The single
-danger is a big drawdown *before* you've recovered your initial — so recover early.
-
----
-
-## 4. Repo layout
-
+## Repo layout
 ```
-StreamTrade/
-├─ CLAUDE.md                     ← this file
-├─ README.md, requirements.txt
-├─ .env.example                  ← template; real .env is gitignored (recreate it)
-│
-├─ live_breakout/                ← THE LIVE BOT (what you deploy)
-│  ├─ breakout_core.py           ← shared strategy state machine (platform-agnostic, self-tested)
-│  ├─ live_mt5_breakout.py       ← MT5 engine (WINDOWS ONLY)
-│  ├─ live_ctrader_breakout.py   ← cTrader engine (runs anywhere; verified connects)
-│  └─ .env.example               ← template
-│
-├─ research/                     ← strategy research & backtests
-│  ├─ breakout.py                ← MAIN backtest for the live strategy (Donchian + trail)
-│  ├─ mm_trend.py                ← trend-following baseline (daily entry) — for comparison
-│  ├─ mm_backtest.py             ← money-management engine (let-winners-run), per-month + range
-│  ├─ money_mgmt.py              ← exit-scheme comparison (proved let-winners-run wins)
-│  ├─ dca_grid.py                ← DCA/grid test (proved it's a trap — high win, blows up)
-│  ├─ regime_switch.py           ← regime-switch test (proved switching-to-mean-reversion fails)
-│  └─ (momentum_*, edge_filters, morning_edge, ...) ← earlier research, mostly negative results
-│
-├─ CoinHunter/                   ← crypto channel validator (Binance spot + OKX price gating)
-│  ├─ ingest.py, parse_crypto.py, binance.py, prices.py, backtest.py
-│
-├─ bt_dynamic_split.py           ← the shared backtest engine (load_prices, simulate, plan_split)
-├─ fetch_prices.py               ← pulls XAUUSD M1 history from cTrader -> xauusd_m1_ext.csv
-├─ live_validate.py              ← gold-channel PAPER validator (truth-meter, deletion detection)
-├─ live_execute.py               ← gold-channel real-demo executor (dynamic-split, early-alert)
-└─ xauusd_m1_ext.csv             ← price data (GITIGNORED, 57MB — regenerate, see §6)
+core/breakout_core.py     # Config + BreakoutEngine state machine; run it for a self-test
+backtest/backtest.py      # edit CONFIG at top, run from repo root
+backtest/fetch_prices.py  # cTrader M1 OHLC downloader -> data/xauusd_m1.csv
+live/live_ctrader.py      # cTrader engine (Twisted/protobuf; runs on any OS incl. a cheap Linux VPS)
+live/live_mt5.py          # MT5 engine (needs the MetaTrader5 package + terminal; WINDOWS ONLY)
+data/                     # price CSVs (gitignored — regenerate with fetch_prices.py)
+.env.example              # copy to .env, fill cTrader/MT5 creds
 ```
 
-**Not in the repo (gitignored, recreate locally):** `.env` files, `*.session` (Telegram auth),
-`venv/`, `*.csv`, runtime `*_log.jsonl` / `*_state.json`.
-
----
-
-## 5. Windows VPS setup (the deployment target)
-
-```powershell
-# 1. Install Python 3.9+ and Git. Clone:
-git clone git@github.com:alief9393/breakout_bot_xauusd.git
-cd breakout_bot_xauusd
-
-# 2. Virtual env + deps
-python -m venv venv
-venv\Scripts\activate
+## How to run
+```bash
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-pip install MetaTrader5 python-dotenv        # MetaTrader5 is Windows-only
+cp .env.example .env            # fill in cTrader credentials
 
-# 3. Install & log into the MT5 terminal (e.g. Exness MT5), symbol XAUUSD visible in Market Watch.
-
-# 4. Recreate the env for the live engine:
-copy live_breakout\.env.example live_breakout\.env
-#   edit live_breakout\.env  -> set EXECUTE_ENABLED=False first (dry-run),
-#   MT5_LOGIN / MT5_PASSWORD / MT5_SERVER (or leave blank if terminal already logged in)
-#   for cTrader: CTRADER_CLIENT_ID / SECRET / ACCESS_TOKEN / HOST_TYPE
+python backtest/fetch_prices.py # downloads gold M1 -> data/xauusd_m1.csv (needs .env)
+python backtest/backtest.py     # backtest
+python core/breakout_core.py    # engine self-test (no data/creds needed)
 ```
+**Live, in order — never skip a step:**
+1. `EXECUTE_ENABLED=False` (default) → run `live/live_ctrader.py`: it logs the intents it *would* send, trades nothing. Watch it for a day.
+2. Set `EXECUTE_ENABLED=True` on a **DEMO** account (`CTRADER_HOST_TYPE=demo`). Watch it place/trail/close real orders on fake money.
+3. Only then consider a live account with **small** risk. On the MT5 side use `live/live_mt5.py` on a Windows VPS with the terminal logged in.
 
----
+## Config knobs (same names in backtest & core)
+`DONCHIAN_N` breakout lookback in days (robust 3–20; shorter = more trades) ·
+`SL_PIPS` 1R stop · `TRAIL_R` trail distance in R · `RISK_PCT` risk per trade
+(0.02 ≈ −25% DD, 0.07 ≈ profit-optimal-but-brutal) · `HORIZON_DAYS` max hold ·
+`COOLDOWN_MIN` re-arm delay · `MIN_LOT`/`MAX_LOT` broker clamps.
 
-## 6. Running the live engines
+## Lot-sizing reality (important)
+`lots = RISK_PCT × balance ÷ (SL_PIPS × $10/lot)`, rounded to 0.01, clamped [0.01, 50].
+- On a tiny balance the 0.01 minimum **forces over-risk** (you can't risk less than one micro-lot).
+- On a big balance the 50-lot cap **throttles compounding**.
+Both distort results at the extremes — the backtest reports how many trades hit each clamp.
 
-**Always: dry-run → demo → live. Never skip.**
+**Leverage note:** a broker's "1:500 / 1:1000" is just the *margin* limit (how little you post to open
+a position). It is NOT your risk. Risk is set by **lot size via RISK_PCT**. Keep effective leverage low;
+the strategy's −70% drawdown is already punishing — do not amplify it.
 
-### MT5 (Windows)
-```powershell
-cd live_breakout
-python live_mt5_breakout.py
-```
-- `EXECUTE_ENABLED=False` → logs `DRY_RUN_intent` lines, **sends no orders**. Watch these for a day;
-  confirm entries/SLs/trailing look sane.
-- Then `EXECUTE_ENABLED=True` on a **DEMO** account. Confirm real fills + the trailing-stop amends.
-- Only then, live, small. **The MT5 engine has never been run live — verify its first trades by hand.**
+## What's been validated (don't re-litigate)
+- **Walk-forward (the honest test): ~1,439× out-of-sample**, beat buy-and-hold in **7 of 8** unseen
+  blocks. Parameter N≈3 kept being re-selected on past data and kept working forward → a *real*, robust
+  edge, not curve-fit. Per-trade +0.41R, stable across N=3…20.
+- Tested against ~20 other instruments and several strategy families (mean-reversion, momentum,
+  grid, breakout variants) — **gold trend-following was the clear winner.** Silver/oil/indices/FX/crypto
+  were all weaker or lost. Don't expect another instrument to beat gold here.
 
-### cTrader (runs anywhere; already verified it connects)
-```bash
-python live_ctrader_breakout.py
-```
-Same `EXECUTE_ENABLED` flow. Uses `CTRADER_*` creds. Auto-reconnects on drops.
+## Honest caveats / the one open gate
+- The entire sample is **2023–2026 gold — a bull market.** The strategy has **never faced a sustained
+  gold bear.** That is the single go/no-go before real money: **re-run the backtest + walk-forward on
+  older gold data that includes bear years (≈2013 crash, 2015–2018 grind).** If it survives that, trust it.
+- **−70% drawdown is real.** Expect to watch the account fall by most of its peak and not flinch.
+- Headline multiples ride M1 fill optimism + trade frequency; the *edge* (+0.41R) is the durable part,
+  the giant end number is idealized.
 
-### Both engines
-- Poll every 15s, refresh the N-day Donchian levels daily, act on breakouts, trail the stop, cooldown.
-- Log to `mt5_breakout_log.jsonl` / `ctrader_breakout_log.jsonl` (gitignored).
-- **One engine per broker account** — running both on the same account double-sizes. Use separate accounts.
+## Security / hygiene
+- **Never commit** `.env` or `*.session` (gitignored). Credentials live only in `.env`.
+- Price CSVs are gitignored — regenerate with `fetch_prices.py`, don't commit data.
+- Always start live work on **demo** with `EXECUTE_ENABLED=False`.
 
-### Keep it alive on the VPS
-- **Windows:** Task Scheduler (start on boot, restart on failure) or NSSM as a service. Enable MT5 auto-login.
-- **Linux (cTrader only):** `tmux` or a `systemd` service.
-
----
-
-## 7. Lot sizing reality (important)
-
-`lots = risk% × balance ÷ (SL_PIPS × $10/lot)`, rounded to 0.01, clamped [0.01, 50]:
-- **Small balance → forced over-risk.** At $100 with 150-pip SL, the 0.01 min lot risks ~$15 = 15%,
-  not your intended %. Need **~$300+** for a 5% setting to be honest. The engines log `min_clamp`.
-- **Large balance → capped.** You hit the 50-lot ceiling around ~$1.5M (at 5%); growth flattens
-  past that. Backtest "millions×" numbers ignore real 50-lot slippage — treat them skeptically.
-
----
-
-## 8. Running the backtests / research
-
-The backtests need the price CSV, which is gitignored. Regenerate it first:
-```bash
-python fetch_prices.py        # pulls XAUUSD M1 from cTrader -> xauusd_m1_ext.csv (needs CTRADER_* creds in root .env)
-```
-Then:
-```bash
-python research/breakout.py   # the main strategy backtest (edit CONFIG at top)
-python research/mm_trend.py   # trend baseline for comparison
-```
-Both have a CONFIG block up top: balance, risk, Donchian length, hold, `START_YM`/`END_YM` range,
-costs, min/max lot. Per-month tables + drawdown + clamp counts print out.
-
----
-
-## 9. Key lessons learned (do NOT relitigate these)
-
-- **Win rate ≠ profit.** A 94%-win DCA grid lost −176%; a 40%-win breakout made money. Only
-  **expectancy (avg R × frequency)** matters. Chasing win rate is the classic trap.
-- **DCA / grid / averaging-down is dangerous** (not "fake" — real math, dangerous). High win rate,
-  rare catastrophic tail, negative expectancy on a driftless series. Tested and rejected.
-- **Regime detection lags.** Switching to mean-reversion in "chop" broke more (big trend months) than
-  it fixed. The fix is the **breakout entry itself** (self-selecting regime detector, fail-safe: flat in chop).
-- **The gold signal channel is not a real edge.** `@Raahimbfxproo` (later renamed `@XAUUSDSINGLE0`)
-  posts stale/fabricated-timing TP claims, deletes losing signals (survivorship), and ran a
-  **recovery scam** (deleted "I'll recover your losses, DM @HadiFX4" bait — caught by our deletion
-  detector). Real-price gating showed following it is ~breakeven-to-negative. **Never trust a signal
-  channel's self-reported record; gate against real price.** The CoinHunter crypto channel was
-  similar (honest format, but ~breakeven when price-gated).
-- **20%/day is arithmetically impossible** (compounds to more than all money on Earth in a year).
-  It's the signature of a scam, not a target.
-- **The breakout edge is regime-dependent** — it needs a trending market. Proven on gold 2023–26;
-  **unproven on gold's choppy/bear years.** This is the #1 open validation.
-
----
-
-## 10. Immediate next steps (priority order)
-
-1. **OUT-OF-SAMPLE VALIDATION (do before real money).** Fetch older gold data (≈2013–2023, incl.
-   choppy/down years) and run `research/breakout.py` on it. If it stays positive → real edge. If it
-   collapses → it was riding the 2023–26 trend. This is the go/no-go test.
-2. **Forward paper-test** the live engine (dry-run → demo) for a few weeks on real incoming data.
-3. **Deploy** on the VPS with the withdrawal plan; recover initial early, harvest routinely, size at
-   a drawdown you can stomach (1–2% risk = −25%; 5% = −51%; 7% = −63%).
-
----
-
-## 11. Security
-
-- **Never commit** `.env` or `*.session` (Telegram auth keys = full account access). `.gitignore`
-  already blocks them. If you add secrets, keep them out of git.
-- The repo is **public** on `github.com/alief9393/breakout_bot_xauusd`. Only code + `.env.example`
-  templates are in it. Recreate `.env` files locally from the templates.
-- Git identity for this repo is the **personal** account (`aliefchandra10@gmail.com` / `alief9393`),
-  set locally; the machine's global git is the work account — don't let commits here use it.
-
----
-
-## 12. Working style (for the Claude Code session)
-
-- **Be evidence-driven, verify before concluding** — don't declare things fail/succeed without
-  checking the data (this was a repeated correction during development).
-- **Be honest and calibrated** — no hype, state drawdowns and caveats plainly, but don't be a doomer.
-- **Real-order code is sensitive** — default to dry-run, confirm on demo, never ship untested live logic.
-- The operator prefers **concise, direct answers** with the numbers up front.
+## Working style
+Be evidence-driven: pull the actual data before making a claim; don't assume. When something looks
+too good, suspect look-ahead / curve-fit and test it walk-forward. Keep changes small and in the core.
+Prefer honest, survivable returns over fantasy numbers.
